@@ -332,7 +332,15 @@ The definitions:
 - **Precision@k** = (relevant docs in your top-k) ÷ k → *"how clean are my results"*
 - **Recall@k** = (relevant docs in your top-k) ÷ (total relevant that exist) → *"how much of the good stuff did I find"
 
+recall_precision.png
+
 ![alt text](images/image-4.png)
+
+![alt text](images/recall_precision.png)
+
+![alt text](images/explanation.png)
+
+![alt text](images/example.png)
 
 A running example we'll reuse: there are **3 truly relevant docs {A, B, C}**, and your top-5 comes back as:
 
@@ -363,6 +371,8 @@ Why these two matter most:
 - Because precision is higher when relevant docs show up early, AP gives **more reward the earlier your hits land**.
 - **MAP@k** = the average of AP across all your test queries (one AP per query, then average them).
 
+![alt text](images/MAP@K.png)
+
 Worked on our example (relevant at ranks 1, 3, 5):
 - Precision at each hit: at rank 1 = 1.0, at rank 3 = 0.67, at rank 5 = 0.60
 - AP = (1.0 + 0.67 + 0.60) ÷ 3 = **0.76**
@@ -383,6 +393,10 @@ Here's the "position matters" idea that both MAP and MRR are built on:
   - none found at all → 0
 - It only looks at the **first** good hit and how high it sits (you saw this in the diagram above).
 - **MRR (Mean Reciprocal Rank)** = the average RR across all your test queries.
+
+![alt text](images/rr.png)
+
+![alt text](images/mrr.png)
 
 Worked example (3 queries):
 - Q1 → first hit at rank 1 → 1.00
