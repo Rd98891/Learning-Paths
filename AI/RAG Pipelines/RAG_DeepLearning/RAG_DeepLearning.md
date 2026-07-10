@@ -460,10 +460,9 @@ Confirmed the Azure details — now here's the whole story from the scaling prob
   - Latency balloons as your index grows — fine at 10k vectors, unusable at 10M.
   - It can't "prune" — every point gets checked, no shortcuts.
 
+![alt text](images/knn.png)
 
 ## 2. ANN — trade a tiny bit of accuracy for huge speed
-
-![alt text](images/knn.png)
 
 - **ANN (approximate nearest neighbors)** is built on one realization: for retrieval you rarely need the *exact* closest vectors — *"almost the closest"* is good enough.
 - So ANN deliberately **skips checking everything** and looks only at a small, promising subset.
