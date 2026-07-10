@@ -458,7 +458,10 @@ Confirmed the Azure details — now here's the whole story from the scaling prob
 - The limitations:
   - Cost is **O(N)** — it grows in a straight line with the number of vectors. 1M vectors = 1M distance calculations per query.
   - Latency balloons as your index grows — fine at 10k vectors, unusable at 10M.
-  - It can't "prune" — every point gets checked, no shortcuts.## 2. ANN — trade a tiny bit of accuracy for huge speed
+  - It can't "prune" — every point gets checked, no shortcuts.
+
+  
+- ## 2. ANN — trade a tiny bit of accuracy for huge speed
 
 ![alt text](images/knn.png)
 
