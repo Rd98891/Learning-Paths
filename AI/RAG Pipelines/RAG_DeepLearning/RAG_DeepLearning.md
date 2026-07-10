@@ -460,8 +460,8 @@ Confirmed the Azure details — now here's the whole story from the scaling prob
   - Latency balloons as your index grows — fine at 10k vectors, unusable at 10M.
   - It can't "prune" — every point gets checked, no shortcuts.
 
-  
-- ## 2. ANN — trade a tiny bit of accuracy for huge speed
+
+## 2. ANN — trade a tiny bit of accuracy for huge speed
 
 ![alt text](images/knn.png)
 
