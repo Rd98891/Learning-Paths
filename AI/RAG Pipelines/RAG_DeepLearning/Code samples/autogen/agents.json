@@ -1,0 +1,29 @@
+[
+    {
+        "azure_ai_search_index_name": {
+            "value": "sm-20251211-kb-dev",
+            "version": ""
+        },
+        "agent_name": "SM20260109GeneralAgent_2",
+        "agent_instruction": "The boss who asks questions and gives tasks.",
+        "azure_ai_search_endpoint": "https://aiforenterprise-search.search.windows.net"
+    },
+    {
+        "azure_ai_search_index_name": {
+            "value": "sm-20251211-kb-dev",
+            "version": ""
+        },
+        "agent_name": "SM20260109ProductsAgent_2",
+        "agent_instruction": "Use this to search products. Use AI Search Only. Do not use knowledgebase.",
+        "azure_ai_search_endpoint": "https://aiforenterprise-search.search.windows.net"
+    },
+    {
+        "azure_ai_search_index_name": {
+            "value": "sm-20251211-kb-dev",
+            "version": ""
+        },
+        "agent_name": "SM20260109MathAgent_2",
+        "agent_instruction": "Use AI Search Only. Do not use knowledgebase",
+        "azure_ai_search_endpoint": "https://aiforenterprise-search.search.windows.net"
+    }
+]
