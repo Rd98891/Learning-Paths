@@ -270,3 +270,266 @@ Natural next steps from here, whenever you want them: **the FFN / MoE internals*
 <hr style="border:none;height:3px;background:linear-gradient(to right, #00bcd4, #673ab7);">
 
 > **Question**
+Great Explanations
+>Explain: Feed-Forward Networks, Add & Norm, Softmax Layer for Output Prediction
+
+Solid — these three are the "supporting cast" that interviewers use to separate people who memorized the attention headline from people who actually understand a Transformer block. Here's each, repo-formatted.
+
+# 1. Feed-Forward Network (FFN)
+
+**Definition:** A small **position-wise** neural network applied to **each token independently** *after* attention. Two linear layers with a nonlinearity between them:
+
+```
+FFN(x) = W₂ · activation(W₁ · x + b₁) + b₂
+```
+
+**The one distinction that matters — attention vs FFN:**
+
+| | Attention | Feed-Forward |
+|---|---|---|
+| Direction of work | **Across** tokens (mixing) | **Within** each token (independent) |
+| Job | *Gather* relevant context | *Process / think about* what was gathered |
+| Cross-token info? | Yes | **No** |
+
+> **The mental model to say out loud:** *"Communicate, then compute."* Attention lets tokens **talk to each other**; the FFN lets each token **think privately** about what it just heard.
+
+**Key facts:**
+- It **expands then contracts**: `d_model → d_ff → d_model`, where `d_ff` is usually **4× wider** (e.g. 4096 → 16384 → 4096). The wide middle is where capacity lives.
+- **~⅔ of a Transformer block's parameters live here** — not in attention. Interpretability work suggests the FFN acts like **key-value memory storing factual knowledge**.
+- **Activation:** ReLU originally → **GELU / SwiGLU** in modern LLMs.
+- **Production hook — Mixture of Experts (MoE):** replaces the one dense FFN with many "expert" FFNs + a **router** that activates only a few per token (Mixtral, rumored GPT-4). Same params, far less compute per token. Naming this signals you're current.
+
+![alt text](images/image-5.png)
+
+# 2. Add & Norm
+
+This one label hides **two independent tricks**. Break them apart in an interview.
+
+## Part A — Add = Residual (skip) connection
+
+**Definition:** Add the sublayer's input back to its output before passing on:
+
+```
+output = LayerNorm( x + Sublayer(x) )
+```
+
+**Why it exists (the killer point):**
+- It creates a **gradient highway** — gradients flow *directly* backward through the `+`, bypassing the sublayer. This is what makes it possible to **stack dozens of layers** without vanishing gradients.
+- Each layer only has to learn a **small refinement (a "delta")** to the running representation, not rebuild it from scratch. Much easier to optimize.
+- **Callback to your RNN answer:** this is the Transformer's *structural* fix for the same vanishing-gradient problem that killed deep RNNs.
+
+## Part B — Norm = Layer Normalization
+
+**Definition:** Normalize a **single token's** feature vector to mean 0 / variance 1, then apply learned scale + shift. Keeps activations in a stable range → stable, faster training.
+
+**The distinction interviewers love — LayerNorm vs BatchNorm:**
+
+| | LayerNorm | BatchNorm |
+|---|---|---|
+| Normalizes across | **Features of one token** | Same feature across the **batch** |
+| Depends on other samples? | **No** | Yes |
+| Good for sequences / variable length? | **Yes** | No (unstable) |
+
+> **Why LayerNorm for Transformers:** it's **independent of batch size and sequence length**, so it behaves identically in training and at inference on a single sequence. BatchNorm breaks with variable-length text and small batches.
+
+**Current-practice note (say this to sound up-to-date):**
+- **Post-LN** (original paper) = norm *after* the add → harder to train, needs learning-rate warmup.
+- **Pre-LN** (modern LLMs) = norm *before* the sublayer → much more stable; the default today.
+- **RMSNorm** (LLaMA) = cheaper LayerNorm variant, no mean-centering.# 3. Softmax Layer for Output Prediction
+
+![alt text](images/image-6.png)
+
+**Definition:** The final stage that turns the last hidden vector into a **probability distribution over the entire vocabulary**, so the model can pick the next token. Two sub-steps:
+
+1. **Linear layer (the "LM head" / unembedding):** projects the final hidden state `[d_model]` → **logits** `[vocab_size]` — one raw score per possible token (~100k of them). Often **weight-tied** with the input embedding matrix.
+2. **Softmax:** converts those logits into **probabilities that sum to 1**.
+
+**The single most important reframe (interviewers probe this):**
+
+> An LLM does **not** "output a word." It outputs **P(next token | everything so far)** — a probability over *every* token in the vocabulary. A **separate decoding step** then chooses one.
+
+**That separation → decoding strategies:**
+
+| Strategy | How it picks | Effect |
+|---|---|---|
+| **Greedy** | Always the argmax | Deterministic, can be dull/repetitive |
+| **Temperature** | Scales logits `÷ T` before softmax | `T<1` sharper/safer · `T>1` flatter/creative · `T=0` ≈ greedy |
+| **Top-k** | Sample from top *k* tokens | Caps the candidate pool |
+| **Top-p (nucleus)** | Sample from smallest set summing to *p* | Adapts pool size to confidence |
+
+- **Autoregressive loop:** pick a token → **append it** → feed the whole sequence back in → predict the next. Repeat until a stop token. *(This is why the KV-cache exists — to avoid recomputing everything each step.)*
+
+![alt text](images/image-7.png)
+
+---
+
+## How the three fit inside one block
+
+> **attention → Add&Norm → FFN → Add&Norm**, repeated N times, then **Linear → Softmax** once at the very top.
+
+Attention mixes across tokens, **Add&Norm** keeps that stack trainable and stable, the **FFN** lets each token process what it gathered, and **Softmax** at the end converts the final vector into the next-token distribution.
+
+---
+
+# Scenario-based interview Q&A
+
+**Scenario:** *Your Azure-hosted assistant gives repetitive, robotic answers. A teammate wants to "fine-tune it to be more creative." Diagnose it using the architecture.*
+
+**Q1 — "Where does 'creativity' actually get controlled?"**
+Not in the weights first — at the **softmax/decoding** stage. Repetitive output usually means **greedy or very low temperature**. I'd raise **temperature** and add **top-p** sampling before touching training. It's a config change, not a fine-tune — cheaper, instant, reversible.
+
+**Q2 — "Why not just fine-tune, like they suggested?"**
+Fine-tuning changes **behavior and style**, but repetition here is a **decoding artifact**, not a knowledge gap. Fine-tuning would be expensive overkill for something a `temperature`/`top_p` parameter fixes. I'd only fine-tune if the *content or tone* were wrong across the board.
+
+**Q3 — the depth probe — "The FFN holds most of the parameters. If we want the model to *know* more domain facts, is decoding enough?"**
+No — that's the flip side. Decoding controls *how* it picks from what it knows; it can't add facts. Since factual knowledge largely lives in the **FFN weights**, adding knowledge means either **fine-tuning** (bakes it into weights, hard to update) or, better for facts, **RAG** (keeps facts in an external index, citable and updatable). I'd reach for RAG for domain facts and reserve fine-tuning for behavior.
+
+**Q4 — "Why does the model need Add & Norm at all — could we drop it to save compute?"**
+No. Remove the **residuals** and gradients vanish through the deep stack — the model won't train. Remove **LayerNorm** and activations drift out of range, destabilizing training. They're cheap relative to attention and FFN, and they're what make a deep Transformer trainable in the first place. It's a structural necessity, not optional overhead.
+
+That Q1→Q3 arc — *"decoding controls how it picks, FFN/weights control what it knows"* — is a distinction that consistently impresses.
+
+---
+Natural next steps for the repo: **decoding strategies in depth** (temperature/top-k/top-p with the math), the **KV-cache** (why generation is fast and why it dominates inference memory), or pivot to **RAG internals** to tie all of this back to your strength. Where to?
+
+<hr style="border:none;height:3px;background:linear-gradient(to right, #00bcd4, #673ab7);">
+
+> **Question**
+>Great, now I want to move onto the Generation configurations.
+>  - Explain what is greedy and random sampling.
+>  - Explain the `max-promt-token` and `max-completion-token` and their significance.
+> - Explain Top-k and Top-p in detail.
+> - Explain temperature and where exactly is it placed around softmax layer.
+
+
+Now we're into the knobs you'll actually turn in production — and GenAI Solutions interviewers love this area because it separates people who *tune* models from people who just call them. Here's the full set, repo-formatted.
+
+# 1. Greedy vs Random (Sampling) Decoding
+
+Both start from the **same softmax distribution** over the vocabulary — they differ only in **how they pick**.
+
+- **Greedy decoding:** always take the **argmax** (highest-probability token) at every step. **Deterministic** — same prompt → same output.
+- **Random / multinomial sampling:** **draw** the token according to its probability. A token with p = 0.25 is chosen ~25% of the time. **Stochastic** — same prompt → varied outputs.
+
+![alt text](images/image-8.png)
+
+**When & why:**
+
+| | Greedy | Random sampling |
+|---|---|---|
+| Output | Deterministic, safe | Diverse, creative |
+| Failure mode | **Repetition / loops**, dull, myopic | **Incoherence** if unconstrained |
+| Use for | Extraction, classification, structured/JSON, math | Brainstorming, marketing copy, dialogue |
+
+> **Key relationship:** greedy is just **sampling with temperature → 0**. And raw sampling is dangerous *alone* — the long tail of ~100k tokens holds a lot of junk, so in practice you **always pair sampling with top-k/top-p** (below) to cut that tail. Pure beam search (keeping several candidate sequences) exists too, but it's mostly used in translation/summarization, not chat.
+
+---
+
+# 2. `max_prompt_tokens` and `max_completion_tokens`
+
+**The frame everything hangs on — the context window is a fixed budget:**
+
+> **prompt tokens + completion tokens ≤ context window** *(e.g. 128k)*
+
+- **`max_prompt_tokens`** → cap on the **input** side (prompt + system + retrieved RAG context + history).
+- **`max_completion_tokens`** → cap on the **output** the model is allowed to generate. *(This is OpenAI's old `max_tokens`, renamed on newer models.)*
+
+![alt text](images/image-9.png)
+
+**Significance — why these two knobs matter (say all four in an interview):**
+
+- **Cost.** You're billed on **both** — input *and* output tokens, with **output usually priced higher**. `max_completion_tokens` is your hard ceiling on the expensive side.
+- **Latency.** Generation is sequential — each output token is another forward pass. Fewer completion tokens = faster response.
+- **Truncation risk.** If the model hits `max_completion_tokens` mid-answer, it's **cut off** (you'll see `finish_reason: "length"`). Common bug: JSON output that stops before the closing brace.
+- **The squeeze (RAG-specific).** In RAG, retrieved chunks live in the **prompt** budget. Over-retrieve and you starve the completion — or blow the window entirely. **Always reserve output headroom** rather than filling the prompt to the brim.
+
+---
+
+# 3. Top-k and Top-p (Nucleus) Sampling
+
+Both are **truncation filters**: they shrink the candidate pool *before* sampling, chopping off the low-probability tail so random sampling can't wander into nonsense. They differ in **how they draw the cutoff**.
+
+- **Top-k:** keep the **k highest** tokens, discard the rest, renormalize, sample. → **fixed count.**
+- **Top-p (nucleus):** keep the **smallest set whose cumulative probability ≥ p**, renormalize, sample. → **adaptive count.**
+
+![alt text](images/image-10.png)
+
+**The distinction that wins the point — why top-p is usually preferred:**
+
+- **Top-k is blind to the distribution's shape.** With `k=50`: if the model is **highly confident** (one token at 0.95), you've still dragged in 49 junk tokens as sampling candidates. If it's **very flat**, `k=50` might chop off legitimate options.
+- **Top-p adapts.** Confident step → the nucleus is **tiny** (maybe 1–2 tokens, so it behaves almost greedily). Uncertain step → the nucleus **grows** to admit more options. It matches the pool size to the model's actual confidence.
+
+| | Top-k | Top-p (nucleus) |
+|---|---|---|
+| Cutoff by | Fixed **count** | Cumulative **probability** |
+| Adapts to confidence? | **No** | **Yes** |
+| Typical value | k = 20–50 | p = 0.9–0.95 |
+
+> You can **stack** them: apply top-k first as a safety cap, then top-p. Many production defaults do exactly this.
+
+---
+
+# 4. Temperature — and exactly where it sits
+
+**Definition:** A scalar **T** that reshapes the distribution's *sharpness* by dividing the **logits** before softmax:
+
+```
+                       exp(logitᵢ / T)
+softmax_T(logitᵢ) = ─────────────────────
+                      Σⱼ exp(logitⱼ / T)
+```
+
+**The precise placement answer (this is what your question is really after):**
+
+> **Temperature is applied to the *logits*, i.e. *before* softmax — not after.** Softmax outputs probabilities that already sum to 1; scaling *those* would just require renormalizing and lose the effect. Scaling the **raw logits** is what actually sharpens or flattens the curve.
+
+Order of operations in a real decoding pipeline:
+
+![alt text](images/image-11.png)
+
+**The effect — and the intuition:**
+
+- **T < 1** (e.g. 0.2): dividing by a small number **magnifies** logit gaps → softmax gets **peakier** → more deterministic. As **T → 0** it becomes **greedy**.
+- **T = 1:** the model's raw distribution, untouched.
+- **T > 1** (e.g. 1.5): dividing by a big number **compresses** logit gaps → softmax **flattens** → more random / creative / riskier.
+
+![alt text](images/image-12.png)
+---
+
+## Putting it together — config recipes by task
+
+This table is gold for a Solutions interview, because it shows you map **settings → outcomes**:
+
+| Task | Temperature | Top-p | Why |
+|---|---|---|---|
+| Extraction / classification / JSON | **0** (greedy) | — | Need deterministic, reproducible output |
+| Code generation | 0 – 0.2 | 0.95 | Mostly deterministic, slight flexibility |
+| RAG / factual Q&A | 0 – 0.3 | 0.9 | Stay grounded, minimize invention |
+| Chat assistant | 0.7 | 0.9 | Natural, varied but coherent |
+| Brainstorm / marketing copy | 0.9 – 1.2 | 0.95 | Maximize diversity |
+
+> **Practitioner's note:** don't crank **temperature *and* top-p** both high at once — you compound randomness and get incoherence. The common pattern is to **fix top-p ≈ 0.9 and tune temperature** as your main creativity dial.
+
+---
+
+# Scenario-based interview Q&A
+
+**Scenario:** *Your RAG assistant on Azure OpenAI occasionally (a) invents facts not in the retrieved docs, and (b) sometimes returns answers cut off mid-sentence. Diagnose and fix using generation config.*
+
+**Q1 — "The assistant invents facts. What config changes do you try first?"**
+Before anything expensive, I'd lower **temperature toward 0** and tighten **top-p to ~0.9**. Grounding failures often come from too much sampling freedom letting the model drift off the retrieved context. Config is instant and free; I'd only investigate retrieval quality or prompting after ruling this out.
+
+**Q2 — "Answers get cut off mid-sentence. Why, and what's the fix?"**
+That's `max_completion_tokens` being hit — `finish_reason` will read `"length"`. Fix is to raise the completion cap, but I'd also check the **budget squeeze**: if retrieval is stuffing the prompt, there's little window left for output. I'd cap retrieved context and **reserve explicit output headroom** so prompt + completion comfortably fit the window.
+
+**Q3 — the depth probe — "Why not just set temperature to 0 everywhere and be safe?"**
+For factual/extraction paths, I would. But T=0 makes chat feel robotic and repetitive, and greedy is **myopic** — locally best token, not globally best sentence — so it can loop. I'd tune temperature **per route**: near-0 for the grounded RAG answer, higher for any conversational or creative surface. One global setting rarely fits a whole product.
+
+**Q4 — the "do you really get it" probe — "A teammate lowers temperature to fix hallucination but sets top-k to 1. Redundant?"**
+Effectively yes — **top-k=1 is already greedy**, so it ignores temperature entirely (there's only one candidate to pick). That's a config smell: they've applied two overlapping controls. I'd use *either* temperature≈0 *or* greedy decoding, and keep top-p as the pool-shaping dial, rather than stacking controls that cancel each other's intent.
+
+That Q4 point — **top-k=1 ≡ greedy, so temperature becomes a no-op** — is exactly the kind of subtle interaction interviewers use to test whether you understand these knobs mechanically or just by reputation.
+
+---
+
+Natural next steps for the repo: **repetition controls** (frequency vs presence penalty, `no_repeat_ngram`), the **KV-cache** (why each of these output tokens is cheap after the first), or pivoting to **RAG internals** — chunking, retrieval, re-ranking — to build on your strength. Where to?
