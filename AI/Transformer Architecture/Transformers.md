@@ -277,7 +277,7 @@ Solid — these three are the "supporting cast" that interviewers use to separat
 
 # 1. Feed-Forward Network (FFN)
 
-**Definition:** A small **position-wise** neural network applied to **each token independently** *after* attention. Two linear layers with a nonlinearity between them:
+**Definition:** A small **position-wise** neural network applied to **each token independently** *after* attention. Situated right after the **self-attention mechanism**, it acts as the model's independent "thinking" and fact-retrieval layer
 
 ```
 FFN(x) = W₂ · activation(W₁ · x + b₁) + b₂
@@ -292,12 +292,25 @@ FFN(x) = W₂ · activation(W₁ · x + b₁) + b₂
 | Cross-token info? | Yes | **No** |
 
 > **The mental model to say out loud:** *"Communicate, then compute."* Attention lets tokens **talk to each other**; the FFN lets each token **think privately** about what it just heard.
+While **self-attention routes information** between different words to establish context, the FFN **transforms and interprets** that context for each word individually.
 
-**Key facts:**
-- It **expands then contracts**: `d_model → d_ff → d_model`, where `d_ff` is usually **4× wider** (e.g. 4096 → 16384 → 4096). The wide middle is where capacity lives.
-- **~⅔ of a Transformer block's parameters live here** — not in attention. Interpretability work suggests the FFN acts like **key-value memory storing factual knowledge**.
-- **Activation:** ReLU originally → **GELU / SwiGLU** in modern LLMs.
-- **Production hook — Mixture of Experts (MoE):** replaces the one dense FFN with many "expert" FFNs + a **router** that activates only a few per token (Mixtral, rumored GPT-4). Same params, far less compute per token. Naming this signals you're current.
+**Key functions it performs:**
+
+- **Dimension Expansion and Contraction (The "Expand-then-Contract" Pattern)** : 
+  - **Expansion** - The first linear layer projects the vector into a significantly larger intermediate space. This bottlenecked expansion gives the model more **thinking space or capacity** to separate, combine, and process distinct concepts
+  - `d_model → d_ff → d_model`, where `d_ff` is usually **4× wider** (e.g. 4096 → 16384 → 4096). The wide middle is where capacity lives.
+  - **~⅔  or 66% of a Transformer block's parameters live here** — not in attention. 
+  Interpretability work suggests the FFN acts like **key-value memory storing factual knowledge**.
+  - **Contraction**: The second linear layer compresses this expanded space back down to the original `d_model` so it can be passed to subsequent layers
+
+- **Activation:** 
+  - Sandwiched between the two linear layers is a non-linear activation function. This is vital because self-attention is a purely linear operation. The non-linear activation function allows the Transformer to approximate complex, curved decision boundaries and model intricate linguistic features
+  - ReLU originally → **GELU / SwiGLU** in modern LLMs.
+
+- **Storing Factual Knowledge**:
+  - Beyond routing and processing, the FFN acts as a static parameter-based knowledge store. While attention maps where to look in the input sentence, the weights inside the FFN memorize the facts, patterns, and associations the model learned during its training corpus
+
+**Production hook — Mixture of Experts (MoE):** replaces the one dense FFN with many "expert" FFNs + a **router** that activates only a few per token (Mixtral, rumored GPT-4). Same params, far less compute per token.
 
 ![alt text](images/image-5.png)
 
@@ -307,20 +320,26 @@ This one label hides **two independent tricks**. Break them apart in an intervie
 
 ## Part A — Add = Residual (skip) connection
 
-**Definition:** Add the sublayer's input back to its output before passing on:
+**Definition:** Add the sublayer's ( Multi-Head Attention + Feed-Forward layers ) original input back to its output before passing on:
 
 ```
-output = LayerNorm( x + Sublayer(x) )
+output = LayerNorm( x + Sublayer(x) ) ##where x=input
 ```
 
 **Why it exists (the killer point):**
-- It creates a **gradient highway** — gradients flow *directly* backward through the `+`, bypassing the sublayer. This is what makes it possible to **stack dozens of layers** without vanishing gradients.
+- a **gradient** is a mathematical value that tells the model how much to adjust its internal weights (parameters) to reduce errors in its predictions
+- ADD creates a **gradient highway** — gradients flow *directly* backward through the `+`, bypassing the sublayer. It provides a **shortcut** for gradients to flow backward directly during training.
+- It also ensures that the original contextual information of words isn't lost during heavy transformations. This is what makes it possible to **stack dozens of layers** without vanishing gradients.
 - Each layer only has to learn a **small refinement (a "delta")** to the running representation, not rebuild it from scratch. Much easier to optimize.
 - **Callback to your RNN answer:** this is the Transformer's *structural* fix for the same vanishing-gradient problem that killed deep RNNs.
 
 ## Part B — Norm = Layer Normalization
 
-**Definition:** Normalize a **single token's** feature vector to mean 0 / variance 1, then apply learned scale + shift. Keeps activations in a stable range → stable, faster training.
+**Definition:** The **Norm** step applies Layer Normalization to the output of the addition operation
+-  It scales and shifts the values using learnable parameters, ensuring the model's activations remain stable. This prevents values from exploding or dropping too low, resulting in much faster and more reliable convergence.
+- Normalize a **single token's** feature vector to mean 0 / variance 1, then apply scale + shift. Keeps activations in a stable range → stable, faster training.
+
+![alt text](images/image-6.png)
 
 **The distinction interviewers love — LayerNorm vs BatchNorm:**
 
@@ -332,21 +351,19 @@ output = LayerNorm( x + Sublayer(x) )
 
 > **Why LayerNorm for Transformers:** it's **independent of batch size and sequence length**, so it behaves identically in training and at inference on a single sequence. BatchNorm breaks with variable-length text and small batches.
 
-**Current-practice note (say this to sound up-to-date):**
-- **Post-LN** (original paper) = norm *after* the add → harder to train, needs learning-rate warmup.
-- **Pre-LN** (modern LLMs) = norm *before* the sublayer → much more stable; the default today.
-- **RMSNorm** (LLaMA) = cheaper LayerNorm variant, no mean-centering.# 3. Softmax Layer for Output Prediction
 
-![alt text](images/image-6.png)
+# 3. Softmax Layer for Output Prediction
 
 **Definition:** The final stage that turns the last hidden vector into a **probability distribution over the entire vocabulary**, so the model can pick the next token. Two sub-steps:
 
-1. **Linear layer (the "LM head" / unembedding):** projects the final hidden state `[d_model]` → **logits** `[vocab_size]` — one raw score per possible token (~100k of them). Often **weight-tied** with the input embedding matrix.
+1. **Linear layer:** It assigns the raw score (`[d_model]` → **logits** —) to every possible token (~100k of them). Often Linear layer is **weight-shared** with the input embedding matrix.
+
 2. **Softmax:** converts those logits into **probabilities that sum to 1**.
+- **Logits** are the raw, unnormalized numerical scores assigned by an LLM to every possible token in its vocabulary before turning them into probabilities
 
 **The single most important reframe (interviewers probe this):**
 
-> An LLM does **not** "output a word." It outputs **P(next token | everything so far)** — a probability over *every* token in the vocabulary. A **separate decoding step** then chooses one.
+> An LLM does **not** "output a word." It outputs **P(next token over everything so far)** — a probability over *every* token in the vocabulary. A **separate decoding step** then chooses one.
 
 **That separation → decoding strategies:**
 
